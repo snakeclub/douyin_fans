@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="zh-cn">
+
+<head>
+  <!-- Required meta tags -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+  <!-- Bootstrap CSS -->
+  <link rel="stylesheet" href="./css/bootstrap.min.css">
+  <link rel="stylesheet" href="./css/bootstrap-table.min.css">
+  <link rel="stylesheet" href="./css/bootstrap-table-fixed-columns.min.css">
+  <link rel="stylesheet" href="./css/bootstrap-icons.css">
+
+  <style type="text/css">
+    /* 指定全局字体大小(缩小后中文好看一点) */
+    html {
+      font-size: 14px;
+    }
+
+    /* 65% 屏幕高度 */
+    .customer-hv-top {
+      height: 65vh;
+      min-height: 500px;
+    }
+
+    .customer-hv-bt {
+      height: 25vh;
+      min-height: 200px;
+    }
+
+    .customer-hv-full {
+      height: 91.5vh;
+      min-height: 500px;
+    }
+
+    /* 最小宽度限制 */
+    .customer-mw-sm {
+      min-width: 250px;
+    }
+
+    /* 字体14px */
+    .customer-f-sm {
+      font-size: 14px;
+    }
+  </style>
+
+  <script type="text/javascript">
+    // 页面加载后初始化函数
+    window.onload = function () {
+      // 切换页签的前触发的动作
+      $('a[data-toggle="tab"]').on('show.bs.tab', function (e) {
+        // e.target 新激活页签对象, e.relatedTarget 原页签对象
+        $.douyin_fans.on_toggle_tab($(e.target), $(e.relatedTarget));
+      });
+
+      // 绑定checkbox事件
+      $('#manual_add_use_anonymous').change(function () {
+        if ($(this).is(':checked')) {
+          // 选中
+          $('#manual_add_user_name').val('匿名');
+        } else {
+          // 取消选中
+          if ($('#manual_add_user_name').val() == '匿名') {
+            $('#manual_add_user_name').val('');
+          }
+        }
+      });
+
+      $('#bind_user_use_anonymous').change(function () {
+        if ($(this).is(':checked')) {
+          // 选中
+          $('#bind_user_user_name').val('匿名');
+        } else {
+          // 取消选中
+          if ($('#bind_user_user_name').val() == '匿名') {
+            $('#bind_user_user_name').val('');
+          }
+        }
+      });
+
+      // 在线用户清单绑定
+      $('#online_user_selected').change(function () {
+        var table = $("#online_user_table");
+        if ($(this).is(':checked')) {
+          // 选中全部，先将所有信息加入选中信息
+          $.douyin_fans.set_selected_user_text(
+            table.bootstrapTable('getData')
+          );
+          table.bootstrapTable('checkAll');
+        } else {
+          // 取消选中
+          $.douyin_fans.set_selected_user_text([]);
+          table.bootstrapTable('uncheckAll');
+        }
+      });
+
+      // 在线用户清单绑定选中和取消选中动作
+      $('#online_user_table').on('check.bs.table', function(e, row, element){
+        // 选中
+        $.douyin_fans.select_user(row.device_name);
+      });
+      $('#online_user_table').on('uncheck.bs.table', function(e, row, element){
+        // 取消选中
+        $.douyin_fans.unselect_user(row.device_name);
+      });
+
+      // 模态框的打开前操作，可以进行自动填值
+      $('#share_modal').on('show.bs.modal', function (e) {
+        // e.relatedTarget 触发动作的对象，e.target 目标模态窗口
+        // 不同模态框的个性处理逻辑
+        switch ($(e.target).attr('content_id')) {
+          case 'manual_add_device':
+            // 手动添加设备
+            var wifi_port = '';
+            if ($.douyin_fans.sysconfig != null) {
+              wifi_port = $.douyin_fans.sysconfig.wifi_port;
+            }
+            $('#manual_add_name').val('');
+            $('#manual_add_connect_type_usb').prop('checked', true);
+            $('#manual_add_wlan_port').val(wifi_port);
+            $('#manual_add_auto_connect').prop('checked', true);
+            $('#manual_add_use_anonymous').prop('checked', false);
+            $('#manual_add_user_name').val('');
+            $('#manual_add_wlan_ip').val('');
+            $('#manual_add_name').focus();
+            break;
+          case 'device_bind_user':
+            // 绑定用户
+            var device_name = $('#device_bind_user').attr('row-id');
+            var row = $('#devices_table').bootstrapTable('getRowByUniqueId', device_name);
+            $('#bind_user_device_name').val(device_name);
+            $('#bind_user_use_anonymous').prop('checked', row.use_anonymous);
+            $('#bind_user_remark').val(row.remark);
+            $('#bind_user_user_name').val(row.user_name);
+            break;
+        }
+      });
+
+      // 轻量弹框启动和关闭需要设置z-index，避免被模态框挡住或挡住模态框
+      $('#alertToast').on('shown.bs.toast', function () {
+        // 添加z-index属性
+        $('#alertToast').css('z-index', '9999');
+        $('#alertToast').parent().css('z-index', '9999');
+      });
+
+      $('#alertToast').on('hidden.bs.toast', function () {
+        // 移除z-index属性
+        var toast = $('#alertToast');
+        toast.css('z-index', '-1');
+        toast.parent().css('z-index', '-1');
+        toast.toast('dispose'); // 关闭后必须要销毁，否则无法重新设置是否自动隐藏的属性
+      });
+
+      // 聊天输入框绑定回车动作
+      $('#chat_text').keypress(function (event) {
+          var keynum = (event.keyCode ? event.keyCode : event.which);
+          if (keynum == '13') {
+            $.douyin_fans.send_chat($('#chat_text').val(), $('#btn_send_chat'));
+            $('#chat_text').val('');
+              // 返回false屏蔽后续按键处理
+              return false;
+          }
+      });
+
+      // 界面初始化
+      $.douyin_fans.init_ui();
+    };
+  </script>
+
+  <title>群控管理后台</title>
+</head>
+
+<body class="body-with-top-nav d-flex">
+  <script>
+    var userAgent = navigator.userAgent; //取得浏览器的userAgent字符串
+    var isIE = !(userAgent.indexOf("Opera") > -1 || userAgent.indexOf("Edge") > -1 || userAgent.indexOf("Firefox") > -
+      1 || userAgent.indexOf("Safari") > -1 || userAgent.indexOf("Chrome") > -1);
+  </script>
+
+  <!-- 对屏幕阅读器以外的设备隐藏内容 -->
+  <a id="skippy" class="sr-only sr-only-focusable" href="#content">
+    <div class="container"> <span class="skiplink-text">Skip to main content</span> </div>
+  </a>
+
+  <div class="container-fluid">
+    <nav>
+      <div class="nav nav-tabs nav-pills" id="nav-tab" role="tablist">
+        <a class="nav-item nav-link active" id="nav-device-tab" data-toggle="tab" href="#nav-device" role="tab"
+          aria-controls="nav-device" aria-selected="true">设备连接</a>
+        <a class="nav-item nav-link" id="nav-bg-tab" data-toggle="tab" href="#nav-bg" role="tab" aria-controls="nav-bg"
+          aria-selected="false">后台管理</a>
+        <a class="nav-item nav-link" id="nav-config-tab" data-toggle="tab" href="#nav-config" role="tab"
+          aria-controls="nav-config" aria-selected="false">系统配置</a>
+      </div>
+    </nav>
+    <div class="tab-content mt-2" id="nav-tabContent">
+      <div class="tab-pane fade show active" id="nav-device" role="tabpanel" aria-labelledby="nav-device-tab">
+        <!-- 设备清单 -->
+        <div class="row">
+          <div class="col-md-12">
+            <h4 class="page-header">
+              <svg width="24" height="24" viewBox="0 0 24 24" class="bi" fill="currentColor"
+                xmlns="http://www.w3.org/2000/svg" focusable="false">
+                <use xlink:href="./img/bootstrap-icons.svg#phone" />
+              </svg>
+              设备清单
+            </h4>
+            <div class="devices_table_toolbar">
+              <!-- 表格头工具栏 -->
+              <button type="button" class="btn btn-primary my-1" id="btn_get_devices" data-toggle="tooltip"
+                data-trigger="hover" data-placement="top" title="获取服务端已存储的手机设备列表以及更新设备连接状态"
+                onclick="$.douyin_fans.get_devcies(true);">
+                刷新设备列表
+              </button>
+              <button type="button" class="btn btn-primary my-1" id="btn_remove_devices" data-toggle="tooltip"
+                data-trigger="hover" data-placement="top" title="删除已选中的设备清单"
+                onclick="$.douyin_fans.remove_devices(false);">
+                删除设备
+              </button>
+              <button type="button" class="btn btn-primary my-1" id="btn_connect_devices" data-toggle="tooltip"
+                data-trigger="hover" data-placement="top" title="连接选中的设备"
+                onclick="$.douyin_fans.connect_devices(true);">
+                连接设备
+              </button>
+              <button type="button" class="btn btn-primary my-1" id="btn_in_line" data-toggle="tooltip"
+                data-trigger="hover" data-placement="top" title="选中的设备一键进入直播间"
+                onclick="$.douyin_fans.into_app_line();">
+                进入直播
+              </button>
+              <button type="button" class="btn btn-primary my-1" id="btn_out_line" data-toggle="tooltip"
+                data-trigger="hover" data-placement="top" title="选中的设备一键退出直播间"
+                onclick="$.douyin_fans.out_app_line();">
+                退出直播
+              </button>
+              <button type="button" class="btn btn-primary my-1" id="btn_auto_add_devices" data-toggle="tooltip"
+                data-trigger="hover" data-placement="top" title="服务器接上手机后执行查找并添加手机设备"
+                onclick="$.douyin_fans.auto_add_devices(true);">
+                自动添加设备
+              </button>
+              <button type="button" class="btn btn-primary my-1" data-toggle="tooltip" data-placement="top"
+                data-trigger="hover" tooltip="true" title="按提示手动添加服务器上的手机设备"
+                onclick="$.ui_tools.show_modal('manual_add_device');">
+                手动添加设备
+              </button>
+              <!-- 连接手机帮助 -->
+              <a class="text-secondary text-decoration-none" href="#" data-toggle="tooltip" data-placement="top"
+                tooltip="true" title="帮助: 如何连接手机" onclick="$.ui_tools.show_modal('connect_device_help');">
+                <i class="bi-question-diamond" style="font-size: 1.2rem;"></i>
+              </a>
+              <span>&nbsp;&nbsp;</span>
+              <p></p>
+              <svg width="16" height="16" viewBox="0 0 16 16" class="bi" fill="currentColor" style="color:red;"
+                xmlns="http://www.w3.org/2000/svg" focusable="false">
+                <use xlink:href="./img/bootstrap-icons.svg#circle-fill" />
+              </svg>
+              <label>未连接</label>
+              <span>&nbsp;&nbsp;</span>
+              <svg width="16" height="16" viewBox="0 0 16 16" class="bi" fill="currentColor" style="color:skyblue;"
+                xmlns="http://www.w3.org/2000/svg" focusable="false">
+                <use xlink:href="./img/bootstrap-icons.svg#circle-fill" />
+              </svg>
+              <label>已连接</label>
+              <span>&nbsp;&nbsp;</span>
+              <svg width="16" height="16" viewBox="0 0 16 16" class="bi" fill="currentColor" style="color:greenyellow;"
+                xmlns="http://www.w3.org/2000/svg" focusable="false">
+                <use xlink:href="./img/bootstrap-icons.svg#circle-fill" />
+              </svg>
+              <label>已进入直播</label>
+            </div>
+            <table id="devices_table"></table>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="nav-bg" role="tabpanel" aria-labelledby="nav-bg-tab">
+        <!-- 后台管理 -->
+        <div class="row">
+          <div class="col-sm-9 mb-1">
+            <!-- 左边操作框 -->
+            <div class="row mb-1">
+              <div class="col-sm-4 mb-2">
+                <!-- 在线用户 -->
+                <div class="card border-primary customer-hv-top">
+                  <div class="card-header text-white bg-primary customer-f-sm">
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" value="" id="online_user_selected">
+                      <label class="form-check-label" for="online_user_selected">在线用户&nbsp;(&nbsp;<a
+                          id="online_user_count">20</a>&nbsp;)</label>
+                    </div>
+                  </div>
+                  <div class="card-body p-0 overflow-auto">
+                    <table id="online_user_table"></table>
+                  </div>
+                </div>
+              </div>
+              <div class="col-sm-8 pl-0 mb-2">
+                <!-- 聊天记录 -->
+                <div class="card border-primary customer-hv-top">
+                  <div class="card-header text-white bg-primary customer-f-sm">
+                    聊天记录
+                  </div>
+                  <div class="card-body overflow-auto" id="chat_log">
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="row mb-1">
+              <div class="col-sm-4 mb-1">
+                <div class="card border-primary customer-hv-bt">
+                  <!-- 在线用户的操作按钮 -->
+                  <div class="card-body container overflow-auto">
+                    <h6 class="card-title font-weight-bold">人数选择</h6>
+                    <div class="row mb-2 d-flex justify-content-center">
+                      <button type="button" class="btn btn-primary mr-2 ml-2 mb-1 col-sm-3 p-1" id=""
+                        onclick="$.douyin_fans.select_batch_user(1.0);">选全部</button>
+                      <button type="button" class="btn btn-primary mr-2 ml-2 mb-1 col-sm-3 p-1" id=""
+                        onclick="$.douyin_fans.select_batch_user(0.5);">选一半</button>
+                      <button type="button" class="btn btn-primary mr-2 ml-2 mb-1 col-sm-3 p-1" id=""
+                        onclick="$.douyin_fans.select_batch_user(0.333);">选1/3</button>
+                    </div>
+                      <h6 class="card-title mb-2 text-break font-weight-bold">选中用户: &nbsp;<a id="selected_user_text" class="font-weight-normal"></a></h6>
+                  </div>
+                </div>
+              </div>
+              <div class="col-sm-8 pl-0 mb-1">
+                <div class="card border-primary customer-hv-bt">
+                  <!-- 在线用户的操作按钮 -->
+                  <div class="card-body container overflow-auto pt-1">
+                    <div class="form-row mb-2">
+                      <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="send_mode_type"
+                          id="send_mode_type_selected" value="selected" checked>
+                        <label class="form-check-label" for="send_mode_type_selected">发送所有选中用户</label>
+                      </div>
+                      <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="send_mode_type"
+                          id="send_mode_type_random" value="random">
+                        <label class="form-check-label" for="send_mode_type_random">随机发送一个用户</label>
+                      </div>
+                      <div class="form-check ml-2">
+                        <input class="form-check-input" type="checkbox" value="" id="send_mode_type_wait" checked>
+                        <label class="form-check-label" for="send_mode_type_wait">
+                          多人操作间隔随机时间
+                        </label>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <h6 class="card-title m-2 mt-3 font-weight-bold">发送数字</h6>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('1', this);">1</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('2', this);">2</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('3', this);">3</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('4', this);">4</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('5', this);">5</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('6', this);">6</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('666', this);">666</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('7', this);">7</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('8', this);">8</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_chat('9', this);">9</button>
+                    </div>
+                    <div class="row">
+                      <h6 class="card-title m-2 mt-3 font-weight-bold">执行操作</h6>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.app_give_thumbs_up(5.0);">点赞5秒</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.app_give_thumbs_up(10.0);">点赞10秒</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.app_give_thumbs_up($.douyin_fans.bgconfig.give_thumbs_self_define);">自定义点赞时长</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_heart(this);">送心心</button>
+                    </div>
+                    <div class="row">
+                      <h6 class="card-title m-2 mt-3 font-weight-bold">发送聊天</h6>
+                      <input type="text" class="form-control col-sm-8 m-2" id="chat_text" placeholder="输入...">
+                      <button type="button" class="btn btn-primary m-2" id="btn_send_chat" onclick="$.douyin_fans.send_chat($('#chat_text').val(), this);$('#chat_text').val('');">发送聊天</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-sm-3 pl-0">
+            <!-- 右边设置框 -->
+            <div class="card border-primary customer-hv-full">
+              <div class="card-header text-white bg-primary customer-f-sm">
+                后台参数设置
+              </div>
+              <div class="card-body p-0 overflow-auto">
+                <form id='form_bg_config' class="m-2 ml-4">
+                </form>
+              </div>
+              <div class="card-footer text-muted d-flex justify-content-center">
+                <div id='form_bg_config_button'>
+                  <button type="button" class="btn btn-secondary" id="form_bg_config_refresh"
+                    onclick="$.douyin_fans.get_bg_config(false);">刷 新</button>
+                  <button type="button" class="btn btn-primary" id="form_bg_config_submit"
+                    onclick="$.douyin_fans.set_bg_config(false);">提 交</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="nav-config" role="tabpanel" aria-labelledby="nav-config-tab">
+        <!-- 系统配置 -->
+        <form id='form_config'>
+          <div id='form_config_button'>
+            <button type="button" class="btn btn-secondary" id="form_config_refresh"
+              onclick="$.douyin_fans.get_config(false);">刷 新</button>
+            <button type="button" class="btn btn-primary" id="form_config_submit"
+              onclick="$.douyin_fans.set_config(false);">提 交</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 固定的Modal模块 -->
+  <div class="modal" id="share_modal" role="dialog" tabindex="-1">
+    <!-- 手工连接设备的弹出框 -->
+    <div class="d-none modal-dialog modal-dialog-centered" id="manual_add_device">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">手工添加设备</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <!-- 选择连接方式 -->
+          <div class="container-fluid">
+            <div class="form-row mb-2">
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="manual_add_connect_type"
+                  id="manual_add_connect_type_usb" value="usb" checked>
+                <label class="form-check-label" for="manual_add_connect_type_usb">USB连接</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="manual_add_connect_type"
+                  id="manual_add_connect_type_wifi" value="wifi">
+                <label class="form-check-label" for="manual_add_connect_type_wifi">WIFI连接</label>
+              </div>
+              <div class="form-check ml-2">
+                <input class="form-check-input" type="checkbox" value="" id="manual_add_auto_connect" checked>
+                <label class="form-check-label" for="manual_add_auto_connect">
+                  仅添加已连接设备
+                </label>
+              </div>
+            </div>
+            <!-- 连接信息 -->
+            <div class="form-row mb-3">
+              <label class="col-sm-2 col-form-label" for="manual_add_name">设备号</label>
+              <div class="col-sm-7">
+                <input type="text" class="form-control" id="manual_add_name" placeholder="例如: WGY0217527000271">
+              </div>
+              <button type="button" class="btn btn-primary col-sm-3"
+                onclick="$.douyin_fans.manual_add_device_getinfo();">自动获取信息</button>
+            </div>
+            <div class="form-row mb-2">
+              <label class="col-sm-2 col-form-label mb-2" for="manual_add_user_name">抖音号</label>
+              <div class="col-sm-4 mb-2">
+                <input type="text" class="form-control" id="manual_add_user_name">
+              </div>
+              <div class="form-check ml-2 mt-1">
+                <input class="form-check-input" type="checkbox" value="" id="manual_add_use_anonymous">
+                <label class="form-check-label" for="manual_add_use_anonymous">
+                  使用未登陆用户
+                </label>
+              </div>
+            </div>
+            <div class="form-row mb-2">
+              <label class="col-sm-2 col-form-label mb-2" for="manual_add_wlan_ip">WIFI地址</label>
+              <div class="col-sm-4 mb-2">
+                <input type="text" class="form-control" id="manual_add_wlan_ip">
+              </div>
+              <label class="col-sm-2 col-form-label mb-2" for="manual_add_wlan_port">WIFI端口</label>
+              <div class="col-sm-4 mb-2">
+                <input type="text" class="form-control" id="manual_add_wlan_port">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+          <button type="button" class="btn btn-primary" id="btn_manual_add_submit"
+            onclick="$.douyin_fans.manual_add_device(false);">添加设备</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 绑定抖音用户的弹出框 -->
+    <div class="d-none modal-dialog modal-dialog-centered" id="device_bind_user">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">修改绑定信息</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body container-fluid">
+          <!-- 连接信息 -->
+          <div class="form-row mb-2">
+            <label class="col-sm-2 col-form-label" for="bind_user_device_name">设备号</label>
+            <div class="col-sm-7">
+              <input type="text" class="form-control-plaintext" id="bind_user_device_name">
+            </div>
+            <button type="button" class="btn btn-primary col-sm-3" id="bind_user_get_app_user"
+              onclick="$.douyin_fans.get_app_user(false);">自动查抖音号</button>
+          </div>
+          <div class="form-row mb-2">
+            <label class="col-sm-2 col-form-label mb-2" for="bind_user_user_name">抖音号</label>
+            <div class="col-sm-4 mb-2">
+              <input type="text" class="form-control" id="bind_user_user_name">
+            </div>
+            <div class="form-check ml-2">
+              <input class="form-check-input" type="checkbox" value="" id="bind_user_use_anonymous">
+              <label class="form-check-label" for="bind_user_use_anonymous">
+                使用未登陆用户
+              </label>
+            </div>
+          </div>
+          <div class="form-row mb-2">
+            <label class="col-sm-2 col-form-label" for="bind_user_remark">备注</label>
+            <div class="col-sm-10">
+              <input type="text" class="form-control" id="bind_user_remark">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+          <button type="button" class="btn btn-primary" id="btn_bind_user_submit"
+            onclick="$.douyin_fans.device_bind_user(false);">修改</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 页面加载中, 去除fade属性避免加载动画时间, 解决动画加载中无法关闭loading的问题 -->
+    <div class="modal-dialog modal-dialog-centered" id="loadingModal" data-backdrop="static" data-keyboard="false"
+      style="max-width: 200px; max-height: 200px; justify-content: center;">
+      <div class="spinner-border text-light" style="width: 4rem; height: 4rem;" role="status">
+        <span class="sr-only">Loading...</span>
+      </div>
+    </div>
+
+    <!-- 连接手机的帮助 -->
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable" id="connect_device_help">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">连接手机帮助</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <h5 class="page-header">通过USB连接手机步骤</h5>
+          1. 打开手机的 设置 -> 系统 -> 开发人员选项 -> 调试，设置为 USB 调试模式;
+          <br>2. 通过 USB 数据线连接手机;
+          <br>3. 通过 “自动添加设备” 或 “手工添加设备” 按钮连接手机。
+          <p>&nbsp;</p>
+          <h5 class="page-header">通过WIFI连接手机步骤</h5>
+          1. 打开手机的 设置 -> 系统 -> 开发人员选项 -> 调试，设置为 USB 调试模式;
+          <br>2. 通过 USB 数据线连接手机;
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+   <!-- 居中显示的提示框 -->
+  <div aria-live="polite" aria-atomic="true" class="d-flex justify-content-center align-items-center"
+    style="min-height: 200px; position:fixed; z-index:-1; height: 80vh; width: 100vw;">
+    <!-- Then put toasts within -->
+    <div id='alertToast' class="toast" role="alert" aria-live="assertive" aria-atomic="true" style="font-size: 16px;">
+      <div class="toast-header">
+        <svg width="20" height="20" viewBox="0 0 20 20" class="bi text-success d-none" fill="currentColor"
+          xmlns="http://www.w3.org/2000/svg" focusable="false" toast-icon-type='info'>
+          <use xlink:href="./img/bootstrap-icons.svg#exclamation-circle-fill" />
+        </svg>
+        <svg width="20" height="20" viewBox="0 0 20 20" class="bi text-danger" fill="currentColor"
+          xmlns="http://www.w3.org/2000/svg" focusable="false" toast-icon-type='alert'>
+          <use xlink:href="./img/bootstrap-icons.svg#exclamation-triangle-fill" />
+        </svg>
+        <strong class="mr-auto ml-2" style="font-size: 16px;">告警信息</strong>
+        <small></small>
+        <button type="button" class="ml-2 mb-1 close" data-dismiss="toast" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="toast-body">
+        Hello, world! This is a toast message.
+      </div>
+    </div>
+  </div>
+
+
+
+  <!-- Optional JavaScript -->
+  <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+  <script src="./js/jquery-3.5.1.min.js"></script>
+  <script src="./js/popper.min.js"></script>
+  <script src="./js/bootstrap.min.js"></script>
+  <script src="./js/bootstrap-table.min.js"></script>
+  <script src="./js/bootstrap-table-zh-CN.min.js"></script>
+  <script src="./js/bootstrap-table-fixed-columns.min.js"></script>
+  <script src="./js/uuid.js"></script>
+  <script src="./js/ui_tools.js"></script>
+  <script src="./js/douyin_fans.js"></script>
+  <script>
+    // 启用提示信息
+    $(function () {
+      $("[data-toggle='tooltip']").tooltip();
+      $("[tooltip='true']").tooltip(); // 支持通过别的属性设置
+    });
+  </script>
+</body>
+
+</html>
