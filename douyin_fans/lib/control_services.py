@@ -18,6 +18,7 @@ import sys
 import json
 import time
 import math
+import re
 import datetime
 import random
 import threading
@@ -143,38 +144,10 @@ class DyControlApi(object):
             }""",
             # 安卓控制参数 - 脚本
             'android_chat_wait_input': 1,  # 等待输入框弹出的时间
-            'android_line_script': """[
-                {\"tips\": \"查找首页搜索图标\", \"action\": \"find\", \"xpath\": \"//android.widget.Button[@content-desc=\\\"搜索\\\"]\"},
-                {\"tips\": \"点击首页搜索图标\", \"action\": \"click\"},
-                {\"tips\": \"等待搜索页面打开\", \"action\": \"wait_activity\", \"activity\": \".search.activity.SearchResultActivity\", \"timeout\": 10},
-                {\"tips\": \"查找搜索输入框\", \"action\": \"find\", \"id\": \"aia\"},
-                {\"tips\": \"点击搜索输入框\", \"action\": \"click\"},
-                {\"tips\": \"输入搜索直播间名\", \"action\": \"send_keys\", \"keys\": \"{$=直播间=$}\"},
-                {\"tips\": \"查找搜索按钮\", \"action\": \"find\", \"xpath\": \"//android.widget.Button[@content-desc=\\\"搜索\\\"]\"},
-                {\"tips\": \"点击搜索按钮\", \"action\": \"click\"},
-                {\"tips\": \"查找搜索结果直播栏位按钮\", \"action\": \"find\", \"xpath\": \"//android.widget.TextView[@text=\\\"直播\\\"]\"},
-                {\"tips\": \"点击搜索结果直播栏位按钮\", \"action\": \"click\"},
-                {\"tips\": \"查找直播图标\", \"action\": \"find\", \"xpath\": \"//android.widget.TextView[@text=\\\"%s\\\"]/preceding-sibling::android.widget.FrameLayout\"},
-                {\"tips\": \"点击直播图标\", \"action\": \"click\"}
-            ]""",
-            'android_user_getName_script': """[
-                {\"tips\": \"查找首页\\\"我\\\"按钮\", \"action\": \"find\", \"xpath\": \"//android.widget.TextView[@text=\\\"我\\\"]\"},
-                {\"tips\": \"点击首页\\\"我\\\"按钮\", \"action\": \"click\"},
-                {\"tips\": \"等待一会\", \"action\": \"wait\", \"time\": 1.0},
-                {\"tips\": \"查找用户名控件\", \"action\": \"find\", \"id\": \"fb3\", \"pos\": 0}
-            ]""",
-            'android_chat_obj_script': """[
-                {\"tips\": \"获取发言对象\", \"action\": \"find\", \"xpath\": \"//android.widget.TextView[@text=\\\"说点什么...\\\"]\"}
-            ]""",
-            'android_chat_input_script': """[
-                {\"tips\": \"获取输入框对象\", \"action\": \"find\", \"xpath\": \"//android.widget.EditText\"}
-            ]""",
-            'android_chat_send_script': """[
-                {\"tips\": \"获取发送按钮\", \"action\": \"find\", \"xpath\": \"//android.widget.Button[@content-desc=\\\"发送\\\"]\"}
-            ]""",
-            'android_heart_script': """[
-                {\"tips\": \"获取小心心按钮\", \"action\": \"find\", \"xpath\": \"//android.widget.Button[@content-desc=\\\"小心心\\\"]\"}
-            ]""",
+            'android_script_version_mapping': """{
+                \"14.*\": \"aweme_14.1.0.json\",
+                \"13.*\": \"aweme_13.5.0.json\"
+            }""",
             # 点赞设置参数
             'give_thumbs_up_offset_x': 0.01,  # 点赞操作从屏幕中心偏移比例(可以为负数)
             'give_thumbs_up_offset_y': 0.01,  # 点赞操作从屏幕中心偏移比例(可以为负数)
@@ -201,6 +174,11 @@ class DyControlApi(object):
         self._dbrows_to_para(_fetchs, self.bg_para)
         # 刷新回数据库
         self._update_db_para(self.bg_para, 't_bg_para')
+
+        # 加载脚本和版本映射关系
+        self._version_script_mapping = dict()  # 配置的版本号跟脚本配置文件的关系
+        self._script_info = dict()  # 脚本配置文件与脚本配置的关系
+        self._load_script_version_mapping()
 
         # 获取设备清单, key 为 device_name, value 为整体设备信息
         self.devices = dict()
@@ -1847,6 +1825,36 @@ class DyControlApi(object):
             # 失败抛出异常
             raise RuntimeError('connect error[%s]: %s' % (str(_code), '\n'.join(_back)))
 
+    def _load_script_version_mapping(self):
+        """
+        加载版本和脚本文件的映射
+        """
+        self._version_script_mapping = json.loads(
+            self.para['android_script_version_mapping']
+        )
+        self._script_info = dict()
+        for _file in self._version_script_mapping.values():
+            _json_file = os.path.join(self.config_path, _file)
+            with open(_json_file, 'r', encoding='utf8') as _f:
+                self._script_info[_file] = json.load(_f)
+
+    def _get_mapping_file_by_version(self, ver: str) -> str:
+        """
+        通过版本号获取脚本映射文件
+
+        @param {str} ver - 版本号
+
+        @returns {str} - 返回匹配到的配置文件名
+        """
+        for _key in self._version_script_mapping.keys():
+            _regex = '^' + _key.replace('.', '\\.').replace('*', '.*') + '$'
+            _match = re.match(_regex, ver)
+            if _match is not None:
+                return self._version_script_mapping[_key]
+
+        # 没有找到，返回第一个
+        return self._version_script_mapping.values()[0]
+
     #############################
     # 抖音控制的内部函数
     #############################
@@ -1949,7 +1957,9 @@ class DyControlApi(object):
         self.apps[device_name] = {
             'app': _app,
             'app_package': self.para['android_appPackage'],
-            'activit_type': activit_type
+            'activit_type': activit_type,
+            'app_version': _device_info['app_version'],
+            'script': self._script_info[self._get_mapping_file_by_version(_device_info['app_version'])]
         }
 
     def _get_app_user(self, device_name: str) -> str:
@@ -1965,7 +1975,7 @@ class DyControlApi(object):
         self._start_app(device_name, activit_type='user_name')
 
         # 查找用户昵称
-        _steps = json.loads(self.para['android_user_getName_script'])
+        _steps = json.loads(self.apps[device_name]['script']['android_user_getName_script'])
         try:
             _el = self._exec_appium_steps(device_name, _steps)
             _user_name = _el.text
@@ -1996,7 +2006,8 @@ class DyControlApi(object):
         if self.para['auto_into_line']:
             try:
                 _steps = json.loads(
-                    self.para['android_line_script'].replace('{$=直播间=$}', self.bg_para['line_name'])
+                    self.apps[device_name]['script']['android_line_script'].replace(
+                        '{$=直播间=$}', self.bg_para['line_name'])
                 )
                 # 执行进入操作
                 self._exec_appium_steps(device_name, _steps)
@@ -2027,7 +2038,7 @@ class DyControlApi(object):
 
         # 尝试获取位置信息
         if 'chat_obj_pos' not in _app_info.keys():
-            _chat_obj_steps = json.loads(self.para['android_chat_obj_script'])
+            _chat_obj_steps = json.loads(_app_info['script']['android_chat_obj_script'])
             _chat_obj = self._exec_appium_steps(device_name, _chat_obj_steps)
             _rect = _chat_obj.rect
             _app_info['chat_obj_pos'] = [
@@ -2044,7 +2055,7 @@ class DyControlApi(object):
         _app.adb_keyboard_text(para)
 
         if 'chat_send_pos' not in _app_info.keys():
-            _chat_send_steps = json.loads(self.para['android_chat_send_script'])
+            _chat_send_steps = json.loads(_app_info['script']['android_chat_send_script'])
             _chat_send = self._exec_appium_steps(device_name, _chat_send_steps)
             _rect = _chat_send.rect
             _app_info['chat_send_pos'] = [
@@ -2072,7 +2083,7 @@ class DyControlApi(object):
 
         # 先尝试获取直播室的发言位置对象, 点击
         _heart_obj = _app_info.get('heart_obj', None)
-        _heart_obj_steps = json.loads(self.para['android_heart_script'])
+        _heart_obj_steps = json.loads(_app_info['script']['android_heart_script'])
         try:
             if _heart_obj is None:
                 _heart_obj = self._exec_appium_steps(device_name, _heart_obj_steps)
@@ -2442,4 +2453,6 @@ if __name__ == '__main__':
     # _code, lines = _api._exec_sys_cmd('xy_adb connect 127.0.0.1:21513', 'utf-8')
     # print(_code, lines)
 
-    print(random.uniform(10.0, -10.0))
+    # print(random.uniform(10.0, -10.0))
+    a = re.match('^18\..*$', '18.1.0')
+    print(a)

@@ -1,0 +1,34 @@
+{
+    "android_line_script": [
+        {"tips": "查找首页搜索图标", "action": "find", "xpath": "//android.widget.Button[@content-desc=\"搜索\"]"},
+        {"tips": "点击首页搜索图标", "action": "click"},
+        {"tips": "等待搜索页面打开", "action": "wait_activity", "activity": ".search.activity.SearchResultActivity", "timeout": 10},
+        {"tips": "查找搜索输入框", "action": "find", "id": "aia"},
+        {"tips": "点击搜索输入框", "action": "click"},
+        {"tips": "输入搜索直播间名", "action": "send_keys", "keys": "{$=直播间=$}"},
+        {"tips": "查找搜索按钮", "action": "find", "xpath": "//android.widget.Button[@content-desc=\"搜索\"]"},
+        {"tips": "点击搜索按钮", "action": "click"},
+        {"tips": "查找搜索结果直播栏位按钮", "action": "find", "xpath": "//android.widget.TextView[@text=\"直播\"]"},
+        {"tips": "点击搜索结果直播栏位按钮", "action": "click"},
+        {"tips": "查找直播图标", "action": "find", "xpath": "//android.widget.TextView[@text=\"{$=直播间=$}\"]/preceding-sibling::android.widget.FrameLayout"},
+        {"tips": "点击直播图标", "action": "click"}
+    ],
+    "android_user_getName_script": [
+        {"tips": "查找首页\"我\"按钮", "action": "find", "xpath": "//android.widget.TextView[@text=\"我\"]"},
+        {"tips": "点击首页\"我\"按钮", "action": "click"},
+        {"tips": "等待一会", "action": "wait", "time": 1.0},
+        {"tips": "查找用户名控件", "action": "find", "id": "fb3", "pos": 0}
+    ],
+    "android_chat_obj_script": [
+        {"tips": "获取发言对象", "action": "find", "xpath": "//android.widget.TextView[@text=\"说点什么...\"]"}
+    ],
+    "android_chat_input_script": [
+        {"tips": "获取输入框对象", "action": "find", "xpath": "//android.widget.EditText"}
+    ],
+    "android_chat_send_script": [
+        {"tips": "获取发送按钮", "action": "find", "xpath": "//android.widget.Button[@content-desc=\"发送\"]"}
+    ],
+    "android_heart_script": [
+        {"tips": "获取小心心按钮", "action": "find", "xpath": "//android.widget.Button[@content-desc=\"小心心\"]"}
+    ]
+}

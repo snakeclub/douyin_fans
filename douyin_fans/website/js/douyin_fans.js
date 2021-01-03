@@ -311,60 +311,8 @@ function sleep(numberMillis) {
                     'ctrl_type': 'newline'
                 },
                 {
-                    'id': 'android_user_getName_script',
-                    'show_name': '获取用户名脚本',
-                    'v_type': 'str',
-                    'ctrl_type': 'textarea',
-                    'width': '6',
-                    'value': '',
-                    'rows': '3'
-                },
-
-                {
-                    'id': 'android_line_script',
-                    'show_name': '进入直播脚本',
-                    'v_type': 'str',
-                    'ctrl_type': 'textarea',
-                    'width': '6',
-                    'value': '',
-                    'rows': '3'
-                },
-                {
-                    'ctrl_type': 'newline'
-                },
-                {
-                    'id': 'android_chat_obj_script',
-                    'show_name': '获取发言对象脚本',
-                    'v_type': 'str',
-                    'ctrl_type': 'textarea',
-                    'width': '6',
-                    'value': '',
-                    'rows': '3'
-                },
-                {
-                    'id': 'android_chat_input_script',
-                    'show_name': '获取输入框对象脚本',
-                    'v_type': 'str',
-                    'ctrl_type': 'textarea',
-                    'width': '6',
-                    'value': '',
-                    'rows': '3'
-                },
-                {
-                    'ctrl_type': 'newline'
-                },
-                {
-                    'id': 'android_chat_send_script',
-                    'show_name': '获取发送按钮脚本',
-                    'v_type': 'str',
-                    'ctrl_type': 'textarea',
-                    'width': '6',
-                    'value': '',
-                    'rows': '3'
-                },
-                {
-                    'id': 'android_heart_script',
-                    'show_name': '获取小心心按钮脚本',
+                    'id': 'android_script_version_mapping',
+                    'show_name': '版本与脚本文件的映射',
                     'v_type': 'str',
                     'ctrl_type': 'textarea',
                     'width': '6',

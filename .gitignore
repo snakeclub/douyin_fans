@@ -109,3 +109,8 @@ test_data/temp/
 # vscode
 .vscode-test/
 .vscode/
+
+# 安装包
+douyin_fans/config/*.db
+douyin_fans/config/aweme*.apk
+
