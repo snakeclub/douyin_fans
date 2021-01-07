@@ -227,6 +227,14 @@ function sleep(numberMillis) {
                     'value': 'http://localhost:4723/wd/hub'
                 },
                 {
+                    'id': 'android_restore_ime',
+                    'show_name': '群控统一刷输入法',
+                    'v_type': 'str',
+                    'ctrl_type': 'text',
+                    'width': '4',
+                    'value': 'com.microvirt.memuime/.MemuIME'
+                },
+                {
                     'id': 'implicitly_wait',
                     'show_name': '查找超时(秒)',
                     'v_type': 'float',
@@ -276,7 +284,7 @@ function sleep(numberMillis) {
                 },
                 {
                     'id': 'android_line_appActivity',
-                    'show_name': '直播间Activity',
+                    'show_name': '直播间Activity(多个可用|分隔)',
                     'v_type': 'str',
                     'ctrl_type': 'text',
                     'width': '3',
@@ -355,6 +363,14 @@ function sleep(numberMillis) {
                     'ctrl_type': 'text',
                     'width': '3',
                     'value': '0.01'
+                },
+                {
+                    'id': 'give_thumbs_up_random_seed',
+                    'show_name': '随机位置种子数',
+                    'v_type': 'int',
+                    'ctrl_type': 'text',
+                    'width': '3',
+                    'value': '5'
                 },
                 {
                     'id': 'give_thumbs_up_tap_max',
@@ -437,6 +453,14 @@ function sleep(numberMillis) {
                 'ctrl_type': 'text',
                 'width': '5',
                 'value': '20'
+            },
+            {
+                'id': 'tap_to_main',
+                'show_name': '点击屏幕位置(比例)',
+                'v_type': 'str',
+                'ctrl_type': 'text',
+                'width': '5',
+                'value': '0.5,0.25'
             },
         ]
     }];
@@ -1099,6 +1123,97 @@ function sleep(numberMillis) {
             setTimeout(function () {
                 $('#devices_table').bootstrapTable('hideLoading');
                 $("#btn_connect_devices").removeClass('disabled');
+            }, 10);
+        }
+    };
+
+    /**
+     * 群控设置输入法
+     *
+     * @param {bool} success_not_alert=false - 成功交易不提示
+     */
+    $.douyin_fans.restore_ime = function (success_not_alert) {
+        // 默认参数
+        if (success_not_alert === undefined) {
+            success_not_alert = false;
+        }
+
+        // 显示loading
+        $("#btn_restore_ime").addClass("disabled");
+        try {
+            // 提示是否要删除
+            var selsetions = $('#devices_table').bootstrapTable('getSelections');
+            if (selsetions.length <= 0) {
+                $.ui_tools.alert(
+                    '未选中设备！', '告警信息', 'alert'
+                );
+                return;
+            }
+
+            // 准备参数
+            var device_list = [];
+            for (var i = 0; i < selsetions.length; i++) {
+                device_list.push(selsetions[i].device_name);
+            }
+
+            // 执行连接处理, 成功不提示
+            var run_result = false;
+            var error_info = [];
+            try {
+                // 准备参数
+                var url = '/api/DyControlApi/restore_ime';
+                var json_data = {
+                    'interface_id': get_interface_id(),
+                    'devices': device_list
+                };
+
+                // 调用Ajax
+                $.douyin_fans.ajax_call(
+                    url, json_data, {
+                        'tips': '设备设置输入法',
+                        'success_not_alert': true,
+                        'success_fun': function (result) {
+                            run_result = true;
+                            error_info = result.error_info;
+                            return [true, 'success'];
+                        }
+                    }
+                );
+            } catch (e) {
+                // 进行异常提示
+                $.ui_tools.alert(
+                    'function $.douyin_fans.connect_devices exception: ' + e.toString(),
+                    '告警信息', 'alert'
+                );
+            }
+
+            if (run_result) {
+                // 检查是否有失败的情况
+                if (error_info.length <= 0) {
+                    // 全部处理成功
+                    if (!success_not_alert) {
+                        $.ui_tools.alert(
+                            '设置设备输入法成功！', '提示', 'info', true, 1000
+                        );
+                    }
+                } else {
+                    // 部分处理成功
+                    $.ui_tools.alert(
+                        '部分设备输入法设置失败:\r\n' + JSON.stringify(error_info),
+                        '告警信息', 'alert'
+                    );
+                }
+            }
+        } catch (e) {
+            // 进行异常提示
+            $.ui_tools.alert(
+                'function $.douyin_fans.connect_devices exception: ' + e.toString(),
+                '告警信息', 'alert'
+            );
+        } finally {
+            // 关闭loading必须通过异步方式执行才能关闭
+            setTimeout(function () {
+                $("#btn_restore_ime").removeClass('disabled');
             }, 10);
         }
     };
@@ -2001,6 +2116,223 @@ function sleep(numberMillis) {
             }
         }
     };
+
+    /**
+     * 点击购物车
+     *
+     * @param {dom_obj} callobj - 调用方法的DOM对象
+     */
+    $.douyin_fans.click_car = function (callobj){
+        if (callobj !== undefined) {
+            // 临时屏蔽按钮，防止多次点击
+            $(callobj).addClass("disabled");
+        }
+        try {
+            // 默认参数设置
+            var para = {};
+            // 是否随机发送一个用户
+            para.random = $('#send_mode_type_random').is(':checked');
+            // 多用户发送是否间隔随机时间
+            para.wait_bt_device = $('#send_mode_type_wait').is(':checked');
+
+            // 获取用户
+            var devices = [];
+            if (para.random) {
+                // 随机
+                var selected_data = $('#online_user_table').bootstrapTable('getData');
+                var data_count = selected_data.length;
+                var n = Math.floor(Math.random() * data_count);
+                devices.push(selected_data[n].device_name);
+            } else {
+                // 选中用户
+                var selected_data = $('#online_user_table').bootstrapTable('getSelections');
+                for (var i = 0; i < selected_data.length; i++) {
+                    devices.push(selected_data[i].device_name);
+                }
+            }
+
+            // 进行输入条件判断
+            para.async = true;  // 统一使用异步模式
+            if (devices.length == 0) {
+                $.ui_tools.alert(
+                    '未找到要点击购物车的用户！', '告警信息', 'alert'
+                );
+                return;
+            } else if (devices.length > 1) {
+                // 批量发送采取异步模式
+                para.async = true;
+            }
+
+            // 准备参数
+            var url = '/api/DyControlApi/app_click_car';
+            json_data = {
+                'interface_id': get_interface_id(),
+                'devices': devices,
+                'wait_bt_device': para.wait_bt_device
+            };
+
+            // 发送Ajax
+            $.douyin_fans.ajax_call(
+                url, json_data, {
+                    'tips': '点击购物车',
+                    'success_not_alert': true,
+                    'async': para.async,
+                    'timeout': 1000000,
+                    'success_fun': function (result) {
+                        // 先处理失败的对象
+                        var error_devices = [];
+                        for(var i=0;i<result.error_info.length;i++){
+                            // 添加到清单以便后面区分
+                            error_devices.push(result.error_info[i].device_name);
+                        }
+
+                        // 处理成功对象
+                        for(var i=0;i<devices.length;i++){
+                            if (error_devices.indexOf(devices[i]) < 0){
+                                add_chat_log(devices[i], '{$点击购物车$}');
+                            }
+                        }
+
+                        // 处理失败对象
+                        for(var i=0;i<result.error_info.length;i++){
+                            add_chat_log(result.error_info[i].device_name, '{$点击购物车$}', result.error_info[i].error);
+                        }
+                        return [true, 'success'];
+                    }
+                }
+            );
+
+            // 根据是否异步判断如何提示
+            if (para.async) {
+                // 异步模式
+                $.ui_tools.alert(
+                    '正在后台执行点击购物车处理！', '提示', 'info', true, 1000
+                );
+            }
+        } catch (e) {
+            // 进行异常提示
+            $.ui_tools.alert(
+                'function $.douyin_fans.click_car exception: ' + e.toString(),
+                '告警信息', 'alert'
+            );
+        } finally {
+            if (callobj !== undefined) {
+                // 临时屏蔽按钮，防止多次点击
+                setTimeout(function () {
+                    $(callobj).removeClass('disabled');
+                }, 10);
+            }
+        }
+    };
+
+    /**
+     * 点击屏幕
+     *
+     * @param {dom_obj} callobj - 调用方法的DOM对象
+     */
+    $.douyin_fans.app_tap_screen = function (callobj){
+        if (callobj !== undefined) {
+            // 临时屏蔽按钮，防止多次点击
+            $(callobj).addClass("disabled");
+        }
+        try {
+            // 默认参数设置
+            var para = {};
+            // 是否随机发送一个用户
+            para.random = $('#send_mode_type_random').is(':checked');
+            // 多用户发送是否间隔随机时间
+            para.wait_bt_device = $('#send_mode_type_wait').is(':checked');
+
+            // 获取用户
+            var devices = [];
+            if (para.random) {
+                // 随机
+                var selected_data = $('#online_user_table').bootstrapTable('getData');
+                var data_count = selected_data.length;
+                var n = Math.floor(Math.random() * data_count);
+                devices.push(selected_data[n].device_name);
+            } else {
+                // 选中用户
+                var selected_data = $('#online_user_table').bootstrapTable('getSelections');
+                for (var i = 0; i < selected_data.length; i++) {
+                    devices.push(selected_data[i].device_name);
+                }
+            }
+
+            // 进行输入条件判断
+            para.async = true;  // 统一使用异步模式
+            if (devices.length == 0) {
+                $.ui_tools.alert(
+                    '未找到要点击屏幕的用户！', '告警信息', 'alert'
+                );
+                return;
+            } else if (devices.length > 1) {
+                // 批量发送采取异步模式
+                para.async = true;
+            }
+
+            // 准备参数
+            var url = '/api/DyControlApi/app_tap_screen';
+            json_data = {
+                'interface_id': get_interface_id(),
+                'devices': devices,
+                'wait_bt_device': para.wait_bt_device
+            };
+
+            // 发送Ajax
+            $.douyin_fans.ajax_call(
+                url, json_data, {
+                    'tips': '点击屏幕',
+                    'success_not_alert': true,
+                    'async': para.async,
+                    'timeout': 1000000,
+                    'success_fun': function (result) {
+                        // 先处理失败的对象
+                        var error_devices = [];
+                        for(var i=0;i<result.error_info.length;i++){
+                            // 添加到清单以便后面区分
+                            error_devices.push(result.error_info[i].device_name);
+                        }
+
+                        // 处理成功对象
+                        for(var i=0;i<devices.length;i++){
+                            if (error_devices.indexOf(devices[i]) < 0){
+                                add_chat_log(devices[i], '{$点击屏幕$}');
+                            }
+                        }
+
+                        // 处理失败对象
+                        for(var i=0;i<result.error_info.length;i++){
+                            add_chat_log(result.error_info[i].device_name, '{$点击屏幕$}', result.error_info[i].error);
+                        }
+                        return [true, 'success'];
+                    }
+                }
+            );
+
+            // 根据是否异步判断如何提示
+            if (para.async) {
+                // 异步模式
+                $.ui_tools.alert(
+                    '正在后台执行点击屏幕处理！', '提示', 'info', true, 1000
+                );
+            }
+        } catch (e) {
+            // 进行异常提示
+            $.ui_tools.alert(
+                'function $.douyin_fans.app_tap_screen exception: ' + e.toString(),
+                '告警信息', 'alert'
+            );
+        } finally {
+            if (callobj !== undefined) {
+                // 临时屏蔽按钮，防止多次点击
+                setTimeout(function () {
+                    $(callobj).removeClass('disabled');
+                }, 10);
+            }
+        }
+    };
+
 
     /**
      * 点赞

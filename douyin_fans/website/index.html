@@ -233,6 +233,11 @@
                 onclick="$.douyin_fans.out_app_line();">
                 退出直播
               </button>
+              <button type="button" class="btn btn-primary my-1" id="btn_restore_ime" data-toggle="tooltip"
+                data-trigger="hover" data-placement="top" title="设置选中设备的输入法"
+                onclick="$.douyin_fans.restore_ime(false);">
+                设置输入法
+              </button>
               <button type="button" class="btn btn-primary my-1" id="btn_auto_add_devices" data-toggle="tooltip"
                 data-trigger="hover" data-placement="top" title="服务器接上手机后执行查找并添加手机设备"
                 onclick="$.douyin_fans.auto_add_devices(true);">
@@ -361,8 +366,10 @@
                       <h6 class="card-title m-2 mt-3 font-weight-bold">执行操作</h6>
                       <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.app_give_thumbs_up(5.0);">点赞5秒</button>
                       <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.app_give_thumbs_up(10.0);">点赞10秒</button>
-                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.app_give_thumbs_up($.douyin_fans.bgconfig.give_thumbs_self_define);">自定义点赞时长</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.app_give_thumbs_up($.douyin_fans.bgconfig.give_thumbs_self_define);">自定义点赞</button>
                       <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.send_heart(this);">送心心</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.click_car(this);">点击购物车</button>
+                      <button type="button" class="btn btn-primary m-2" id="" onclick="$.douyin_fans.app_tap_screen(this);">点击屏幕</button>
                     </div>
                     <div class="row">
                       <h6 class="card-title m-2 mt-3 font-weight-bold">发送聊天</h6>

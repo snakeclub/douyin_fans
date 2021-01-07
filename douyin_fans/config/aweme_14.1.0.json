@@ -30,5 +30,8 @@
     ],
     "android_heart_script": [
         {"tips": "获取小心心按钮", "action": "find", "xpath": "//android.widget.Button[@content-desc=\"小心心\"]"}
+    ],
+    "android_car_script": [
+        {"tips": "获取购物车按钮", "action": "find", "id": "h9l"}
     ]
 }

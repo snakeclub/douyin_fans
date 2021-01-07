@@ -19,11 +19,9 @@ import json
 import time
 import math
 import re
-import datetime
 import random
 import threading
 import sqlite3
-import base64
 import traceback
 import subprocess
 from flask import request
@@ -126,12 +124,13 @@ class DyControlApi(object):
             # Appium设置
             'appium_server': 'http://localhost:4723/wd/hub',
             'implicitly_wait': 20.0,  # 查找元素最长等待时间
+            'android_restore_ime': 'com.microvirt.memuime/.MemuIME',  # 多控统一恢复输入法
             # 安卓控制参数 - 启动
-            'android_apk': 'aweme_14.1.0.apk,ADBKeyboard.apk',  # 安装apk，放在 config 目录中
+            'android_apk': 'ADBKeyboard.apk',  # 安装apk，放在 config 目录中
             'android_appPackage': 'com.ss.android.ugc.aweme',  # 抖音应用
             'android_appActivity': '.splash.SplashActivity',  # 抖音首页
             'android_search_appActivity': '.search.activity.SearchResultActivity',  # 抖音搜索页
-            'android_line_appActivity': '.live.LivePlayActivity',  # 抖音直播页面
+            'android_line_appActivity': '.live.LivePlayActivity|.detail.ui.LiveDetailActivity',  # 抖音直播页面
             'android_desired_caps': """{
                 \"noReset\": true,
                 \"unicodeKeyboard\": false,
@@ -153,6 +152,7 @@ class DyControlApi(object):
             'give_thumbs_up_offset_y': 0.01,  # 点赞操作从屏幕中心偏移比例(可以为负数)
             'give_thumbs_up_random_x': 0.01,  # 点赞操作点击点的随机位置范围大小
             'give_thumbs_up_random_y': 0.01,  # 点赞操作点击点的随机位置范围大小
+            'give_thumbs_up_random_seed': 5,  # 点赞操作点击点的随机位置种子数量
             'give_thumbs_up_tap_max': 5,  # 点赞操作每次命令点击次数上限
             'give_thumbs_up_tap_random': True,  # 点赞操作是否每次随机点击次数
             'give_thumbs_up_random_wait': True,  # 点赞点击之间是否随机等待时长
@@ -170,6 +170,7 @@ class DyControlApi(object):
             'send_bt_wait_min': 0.5,  # 多人操作间隔最小时长
             'send_bt_wait_max': 2.0,  # 多人操作间隔最大时长
             'give_thumbs_self_define': 20,  # 自定义点赞时长(秒)
+            'tap_to_main': '0.5,0.25',  # 点击屏幕
         }
         self._dbrows_to_para(_fetchs, self.bg_para)
         # 刷新回数据库
@@ -210,7 +211,9 @@ class DyControlApi(object):
             'into_app_line': self._into_app_line_batch_fun,
             'app_send_chat': self._app_send_chat_batch_fun,
             'app_send_heart': self._app_send_heart_batch_fun,
+            'app_click_car': self._app_click_car_batch_fun,
             'app_give_thumbs_up': self._app_give_thumbs_up_batch_fun,
+            'app_tap_screen': self._app_tap_screen_batch_fun,
         }
 
     #############################
@@ -386,6 +389,8 @@ class DyControlApi(object):
             _para.pop('interface_id')
             self.bg_para.update(_para)
             self._update_db_para(self.bg_para, 't_bg_para')
+            # 重置mapping
+            self._load_script_version_mapping()
             return _resp
         except Exception as e:
             _resp['status'] = '21599'
@@ -1023,6 +1028,87 @@ class DyControlApi(object):
                 )
             return _resp
 
+    @FlaskTool.log(get_logger_fun=FlaskServer.get_logger_fun, get_logger_para={'app_name': 'dy_control_server'})
+    @FlaskTool.support_object_resp
+    def restore_ime(self, methods=['POST'], **kwargs):
+        """
+        恢复设备输入法
+
+        @api {post} {json} /api/DyControlApi/restore_ime restore_ime
+        @body-in {str} interface_id - 接口id
+        @body-in {list} devices - 设备清单, ['设备名', '设备名', ...]
+
+        @body-out {str} interface_id - 接口id
+        @body-out {str} status - 处理状态, 定义如下
+            00000 - 成功
+            21599 - 应用服务处理其他失败
+        @body-out {str} msg - 处理状态对应的描述
+        @body-out {list} error_info - 连接失败的设备清单和失败信息
+            [
+                {
+                    'device_name': '',
+                    'error': ''
+                },
+                ...
+            ]
+        """
+        # 日志对象获取
+        _logger = kwargs.get('logger', None)
+        _logging_level = kwargs.get('logging_level', None)
+        _logger_extra = kwargs.get('logger_extra', None)
+
+        # 设置返回的字典
+        _resp = {
+            'interface_id': request.json.get('interface_id', ''),
+            'status': '00000',
+            'msg': '成功',
+            'error_info': list()
+        }
+        try:
+            for _device_name in request.json.get('devices', []):
+                # 逐个进行连接处理
+                if _device_name not in self.devices.keys():
+                    _resp['error_info'].append({
+                        'device_name': _device_name,
+                        'error': '设备不在已添加的清单中'
+                    })
+                    continue
+
+                # 进行输入法的恢复处理
+                try:
+                    if self.devices[_device_name].get('connnect_status', 'unconnect') == 'unconnect':
+                        _resp['error_info'].append({
+                            'device_name': _device_name,
+                            'error': '设备未连接'
+                        })
+                        continue
+
+                    # 变更输入法
+                    _cmd = '%s -s %s shell ime set %s' % (
+                        self.para['adb'], _device_name, self.para['android_restore_ime']
+                    )
+                    _code, _cmd_info = self._exec_sys_cmd(_cmd)
+                    if _code != 0 and not _cmd_info[0].startswith('Input method'):
+                        raise RuntimeError('设置输入法失败，请手工执行变更处理！')
+                except Exception as e:
+                    _resp['error_info'].append({
+                        'device_name': _device_name,
+                        'error': str(e)
+                    })
+
+            # 返回结果
+            return _resp
+        except Exception as e:
+            _resp['status'] = '21599'
+            _resp['msg'] = str(e)
+            if _logger is not None:
+                _logger.log(
+                    _logging_level,
+                    '[EX][interface_id:%s]%s' % (_resp['interface_id'], traceback.format_exc()),
+                    extra=_logger_extra
+                )
+            return _resp
+
     #############################
     # 手机控制，抖音APP操作
     #############################
@@ -1428,6 +1514,93 @@ class DyControlApi(object):
 
     @FlaskTool.log(get_logger_fun=FlaskServer.get_logger_fun, get_logger_para={'app_name': 'dy_control_server'})
     @FlaskTool.support_object_resp
+    def app_click_car(self, methods=['POST'], **kwargs):
+        """
+        点击购物车
+
+        @api {post} {json} /api/DyControlApi/app_send_heart app_send_heart
+        @body-in {str} interface_id - 接口id
+        @body-in {list} devices - 设备清单, ['设备名', '设备名', ...]
+        @body-in {bool} wait_bt_device - 多人操作是否间隔时间
+
+        @body-out {str} interface_id - 接口id
+        @body-out {str} status - 处理状态, 定义如下
+            00000 - 成功
+            21599 - 应用服务处理其他失败
+        @body-out {str} msg - 处理状态对应的描述
+        @body-out {list} error_info - 发送失败的设备清单和失败信息
+            [
+                {
+                    'device_name': '',
+                    'error': ''
+                },
+                ...
+            ]
+        """
+        # 日志对象获取
+        _logger = kwargs.get('logger', None)
+        _logging_level = kwargs.get('logging_level', None)
+        _logger_extra = kwargs.get('logger_extra', None)
+
+        # 设置返回的字典
+        _interface_id = request.json.get('interface_id', '')
+        _resp = {
+            'interface_id': _interface_id,
+            'status': '00000',
+            'msg': '成功',
+            'error_info': list()
+        }
+        try:
+            # 生成批量任务字典
+            self._batch_task[_interface_id] = dict()
+
+            # 逐个设备进行处理
+            for _device_name in request.json.get('devices', []):
+                if _device_name not in self.apps.keys():
+                    _resp['error_info'].append({
+                        'device_name': _device_name,
+                        'error': '设备未进入直播间'
+                    })
+                    continue
+
+                self._batch_task[_interface_id][_device_name] = {
+                    'type': 'app_click_car',
+                    'para': None
+                }
+
+            # 执行批量任务
+            self._run_batch_task(
+                _interface_id, run_bt_wait=request.json['wait_bt_device'],
+                min_wait_time=self.bg_para['send_bt_wait_min'],
+                max_wait_time=self.bg_para['send_bt_wait_max']
+            )
+
+            # 检查执行结果
+            for _device_name in self._batch_task[_interface_id].keys():
+                if not self._batch_task[_interface_id][_device_name]['is_success']:
+                    _resp['error_info'].append({
+                        'device_name': _device_name,
+                        'error': self._batch_task[_interface_id][_device_name]['msg']
+                    })
+
+            # 返回结果
+            return _resp
+        except Exception as e:
+            _resp['status'] = '21599'
+            _resp['msg'] = str(e)
+            if _logger is not None:
+                _logger.log(
+                    _logging_level,
+                    '[EX][interface_id:%s]%s' % (_resp['interface_id'], traceback.format_exc()),
+                    extra=_logger_extra
+                )
+            return _resp
+        finally:
+            # 删除临时任务清单
+            self._batch_task.pop(_interface_id, None)
+
+    @FlaskTool.log(get_logger_fun=FlaskServer.get_logger_fun, get_logger_para={'app_name': 'dy_control_server'})
+    @FlaskTool.support_object_resp
     def app_give_thumbs_up(self, methods=['POST'], **kwargs):
         """
         点赞
@@ -1481,6 +1654,93 @@ class DyControlApi(object):
                 self._batch_task[_interface_id][_device_name] = {
                     'type': 'app_give_thumbs_up',
                     'para': request.json.get('seconds', 5.0)
+                }
+
+            # 执行批量任务
+            self._run_batch_task(
+                _interface_id, run_bt_wait=request.json['wait_bt_device'],
+                min_wait_time=self.bg_para['send_bt_wait_min'],
+                max_wait_time=self.bg_para['send_bt_wait_max']
+            )
+
+            # 检查执行结果
+            for _device_name in self._batch_task[_interface_id].keys():
+                if not self._batch_task[_interface_id][_device_name]['is_success']:
+                    _resp['error_info'].append({
+                        'device_name': _device_name,
+                        'error': self._batch_task[_interface_id][_device_name]['msg']
+                    })
+
+            # 返回结果
+            return _resp
+        except Exception as e:
+            _resp['status'] = '21599'
+            _resp['msg'] = str(e)
+            if _logger is not None:
+                _logger.log(
+                    _logging_level,
+                    '[EX][interface_id:%s]%s' % (_resp['interface_id'], traceback.format_exc()),
+                    extra=_logger_extra
+                )
+            return _resp
+        finally:
+            # 删除临时任务清单
+            self._batch_task.pop(_interface_id, None)
+
+    @FlaskTool.log(get_logger_fun=FlaskServer.get_logger_fun, get_logger_para={'app_name': 'dy_control_server'})
+    @FlaskTool.support_object_resp
+    def app_tap_screen(self, methods=['POST'], **kwargs):
+        """
+        点击屏幕
+
+        @api {post} {json} /api/DyControlApi/app_tap_screen app_tap_screen
+        @body-in {str} interface_id - 接口id
+        @body-in {list} devices - 设备清单, ['设备名', '设备名', ...]
+        @body-in {bool} wait_bt_device - 多人操作是否间隔时间
+
+        @body-out {str} interface_id - 接口id
+        @body-out {str} status - 处理状态, 定义如下
+            00000 - 成功
+            21599 - 应用服务处理其他失败
+        @body-out {str} msg - 处理状态对应的描述
+        @body-out {list} error_info - 发送失败的设备清单和失败信息
+            [
+                {
+                    'device_name': '',
+                    'error': ''
+                },
+                ...
+            ]
+        """
+        # 日志对象获取
+        _logger = kwargs.get('logger', None)
+        _logging_level = kwargs.get('logging_level', None)
+        _logger_extra = kwargs.get('logger_extra', None)
+
+        # 设置返回的字典
+        _interface_id = request.json.get('interface_id', '')
+        _resp = {
+            'interface_id': _interface_id,
+            'status': '00000',
+            'msg': '成功',
+            'error_info': list()
+        }
+        try:
+            # 生成批量任务字典
+            self._batch_task[_interface_id] = dict()
+
+            # 逐个设备进行处理
+            for _device_name in request.json.get('devices', []):
+                if _device_name not in self.apps.keys():
+                    _resp['error_info'].append({
+                        'device_name': _device_name,
+                        'error': '设备未进入直播间'
+                    })
+                    continue
+
+                self._batch_task[_interface_id][_device_name] = {
+                    'type': 'app_tap_screen',
+                    'para': None
                 }
 
             # 执行批量任务
@@ -1836,7 +2096,9 @@ class DyControlApi(object):
         for _file in self._version_script_mapping.values():
             _json_file = os.path.join(self.config_path, _file)
             with open(_json_file, 'r', encoding='utf8') as _f:
-                self._script_info[_file] = json.load(_f)
+                _json = _f.read()
+                _json = _json.replace('{$=直播间=$}', self.bg_para['line_name'])
+                self._script_info[_file] = json.loads(_json)
 
     def _get_mapping_file_by_version(self, ver: str) -> str:
         """
@@ -1913,6 +2175,13 @@ class DyControlApi(object):
         """
         _app = self.apps.pop(device_name, None)
         if _app is not None:
+            # 检查是否要恢复输入法
+            if _app.get('default_ime', None) is not None:
+                try:
+                    _app['app'].adb_set_default_ime(_app['default_ime'])
+                except:
+                    pass
+
             # 删除应用
             _app['app'].__del__()
             del _app['app']
@@ -1975,7 +2244,7 @@ class DyControlApi(object):
         self._start_app(device_name, activit_type='user_name')
 
         # 查找用户昵称
-        _steps = json.loads(self.apps[device_name]['script']['android_user_getName_script'])
+        _steps = self.apps[device_name]['script']['android_user_getName_script']
         try:
             _el = self._exec_appium_steps(device_name, _steps)
             _user_name = _el.text
@@ -1999,16 +2268,16 @@ class DyControlApi(object):
         # 先启动APP
         self._start_app(device_name, 'line')
 
+        # 保存默认输入法
+        self.apps[device_name]['default_ime'] = self.apps[device_name]['app'].adb_get_default_ime()
+
         # 设置输入法为 AdbKeyboard
-        self.apps[device_name]['app'].adb_keyboard_set_adbime()
+        self.apps[device_name]['app'].adb_set_adbime()
 
         # 尝试自动进入直播间
         if self.para['auto_into_line']:
             try:
-                _steps = json.loads(
-                    self.apps[device_name]['script']['android_line_script'].replace(
-                        '{$=直播间=$}', self.bg_para['line_name'])
-                )
+                _steps = self.apps[device_name]['script']['android_line_script']
                 # 执行进入操作
                 self._exec_appium_steps(device_name, _steps)
             except Exception as e:
@@ -2033,12 +2302,13 @@ class DyControlApi(object):
         """
         _app_info = self.apps[device_name]
         _app: AndroidDevice = _app_info['app']
-        if _app.current_activity_adb != self.para['android_line_appActivity']:
-            raise RuntimeError('当前不在直播间，请先手工进入直播间！')
+        _current_activity = _app.current_activity_adb
+        if _current_activity not in self.para['android_line_appActivity'].split('|'):
+            raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
 
         # 尝试获取位置信息
         if 'chat_obj_pos' not in _app_info.keys():
-            _chat_obj_steps = json.loads(_app_info['script']['android_chat_obj_script'])
+            _chat_obj_steps = _app_info['script']['android_chat_obj_script']
             _chat_obj = self._exec_appium_steps(device_name, _chat_obj_steps)
             _rect = _chat_obj.rect
             _app_info['chat_obj_pos'] = [
@@ -2055,7 +2325,7 @@ class DyControlApi(object):
         _app.adb_keyboard_text(para)
 
         if 'chat_send_pos' not in _app_info.keys():
-            _chat_send_steps = json.loads(_app_info['script']['android_chat_send_script'])
+            _chat_send_steps = _app_info['script']['android_chat_send_script']
             _chat_send = self._exec_appium_steps(device_name, _chat_send_steps)
             _rect = _chat_send.rect
             _app_info['chat_send_pos'] = [
@@ -2078,12 +2348,13 @@ class DyControlApi(object):
         """
         _app_info = self.apps[device_name]
         _app: AndroidDevice = _app_info['app']
-        if _app.current_activity_adb != self.para['android_line_appActivity']:
-            raise RuntimeError('当前不在直播间，请先手工进入直播间！')
+        _current_activity = _app.current_activity_adb
+        if _current_activity not in self.para['android_line_appActivity'].split('|'):
+            raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
 
         # 先尝试获取直播室的发言位置对象, 点击
         _heart_obj = _app_info.get('heart_obj', None)
-        _heart_obj_steps = json.loads(_app_info['script']['android_heart_script'])
+        _heart_obj_steps = _app_info['script']['android_heart_script']
         try:
             if _heart_obj is None:
                 _heart_obj = self._exec_appium_steps(device_name, _heart_obj_steps)
@@ -2100,6 +2371,40 @@ class DyControlApi(object):
 
         return (True, '成功')
 
+    def _app_click_car_batch_fun(self, device_name: str, para):
+        """
+        点击购物车的批量线程操作函数
+
+        @param {str} device_name - 设备名称
+        @param {object} para - 参数
+
+        @returns {tuple(bool, msg)} - 返回处理结果，(是否成功, 结果信息)
+        """
+        _app_info = self.apps[device_name]
+        _app: AndroidDevice = _app_info['app']
+        _current_activity = _app.current_activity_adb
+        if _current_activity not in self.para['android_line_appActivity'].split('|'):
+            raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
+
+        # 先尝试获取直播室的发言位置对象, 点击
+        _heart_obj = _app_info.get('car_obj', None)
+        _heart_obj_steps = _app_info['script']['android_car_script']
+        try:
+            if _heart_obj is None:
+                _heart_obj = self._exec_appium_steps(device_name, _heart_obj_steps)
+            # 执行点击操作
+            _heart_obj.click()
+        except:
+            # 出现异常做多一次, 先点击一下屏幕中间，尝试恢复正常界面
+            print('get car_obj exception: %s' % traceback.format_exc())
+            _heart_obj = self._exec_appium_steps(device_name, _heart_obj_steps)
+            _heart_obj.click()
+
+        # 成功执行，保留对象提升速度
+        _app_info['car_obj'] = _heart_obj
+
+        return (True, '成功')
+
     def _app_give_thumbs_up_batch_fun(self, device_name: str, para):
         """
         点赞的批量线程操作函数
@@ -2112,8 +2417,9 @@ class DyControlApi(object):
         # 计算中心点，减少每次点击的计算量
         _app_info = self.apps[device_name]
         _app: AndroidDevice = _app_info['app']
-        if _app.current_activity_adb != self.para['android_line_appActivity']:
-            raise RuntimeError('当前不在直播间，请先手工进入直播间！')
+        _current_activity = _app.current_activity_adb
+        if _current_activity not in self.para['android_line_appActivity'].split('|'):
+            raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
 
         if _app_info.get('size', None) is None:
             _app_info['size'] = _app.size_adb
@@ -2133,14 +2439,42 @@ class DyControlApi(object):
             _random_y = math.ceil(_app_info['size'][1] * self.para['give_thumbs_up_random_y'])
 
         _pos_seed = list()
-        for i in range(5):
+        for i in range(self.para['give_thumbs_up_random_seed']):
             _pos_seed.append((
                 _x + math.ceil(random.uniform(0 - _random_x, _random_x)),
                 _y + math.ceil(random.uniform(0 - _random_y, _random_y))
             ))
 
         # 执行点击操作
-        _app.tap_adb_continuity(_pos_seed, para, thread_count=5)
+        _app.tap_adb_continuity(_pos_seed, para, thread_count=self.para['give_thumbs_up_tap_max'])
+
+        return (True, '成功')
+
+    def _app_tap_screen_batch_fun(self, device_name: str, para):
+        """
+        点击屏幕的批量线程操作函数
+
+        @param {str} device_name - 设备名称
+        @param {object} para - 暂时没有用
+
+        @returns {tuple(bool, msg)} - 返回处理结果，(是否成功, 结果信息)
+        """
+        # 计算位置
+        _app_info = self.apps[device_name]
+        _app: AndroidDevice = _app_info['app']
+        _current_activity = _app.current_activity_adb
+        if _current_activity not in self.para['android_line_appActivity'].split('|'):
+            raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
+
+        if _app_info.get('size', None) is None:
+            _app_info['size'] = _app.size_adb
+
+        _pos = self.bg_para['tap_to_main'].split(',')
+        _x = math.ceil(_app_info['size'][0] * float(_pos[0]))
+        _y = math.ceil(_app_info['size'][1] * float(_pos[1]))
+
+        # 点击处理
+        _app.tap_adb(x=_x, y=_y)
 
         return (True, '成功')
 
@@ -2436,6 +2770,18 @@ class DyControlApi(object):
         elif script['action'] == 'send_keys':
             # 发送文本
             app.adb_keyboard_text(script.get('keys'))
+        elif script['action'] == 'send_adb_keyboard_keycode':
+            # 发送按键按键
+            app.adb_keyboard_keycode(*script['keycode'])
+        elif script['action'] == 'send_adb_keycode':
+            # 通过adb发送按键
+            app.adb_keycode(*script['keycode'])
+        elif script['action'] == 'set_ime':
+            # 切换输入法
+            app.adb_set_default_ime(script['ime'])
+        elif script['action'] == 'tap':
+            # 点击指定坐标
+            app.tap_adb(x=script['pos'][0], y=script['pos'][1])
 
         # 返回对象
         return _end_el
@@ -2454,5 +2800,3 @@ if __name__ == '__main__':
     # print(_code, lines)
 
     # print(random.uniform(10.0, -10.0))
-    a = re.match('^18\..*$', '18.1.0')
-    print(a)
