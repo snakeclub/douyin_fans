@@ -27,7 +27,7 @@ import subprocess
 from flask import request
 from appium.webdriver.common.mobileby import MobileBy
 from HiveNetLib.simple_restful.server import FlaskTool, FlaskServer
-from HandLessRobot.lib.controls.appium.android import AppDevice as AndroidDevice, AppElement as AndroidElement
+from HandLessRobot.lib.controls.adb_control import AppDevice as AndroidDevice, AppElement as AndroidElement
 # 根据当前文件路径将包路径纳入，在非安装的情况下可以引用到
 sys.path.append(os.path.abspath(os.path.join(
     os.path.dirname(__file__), os.path.pardir, os.path.pardir)))
@@ -53,8 +53,10 @@ class DyControlApi(object):
         抖音后台控制Api接口
 
         @param {str} config_path=None - 配置文件所在目录(sqlite文件)
+        @param {str} shared_path=None - 共享库文件所在目录(minicap等共享库所在目录)
         """
         self.kwargs = kwargs
+
         # 配置目录
         self.config_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), os.path.pardir, 'config')
@@ -116,15 +118,15 @@ class DyControlApi(object):
             'shell_encoding': 'utf-8',  # GBK
             'wifi_port': '5555',
             # 应用自动化参数
-            'auto_into_line': True,  # 自动进入直播间
-            'into_line_err_exit': True,  # 自动进入直播间失败退出
+            'auto_into_line': False,  # 自动进入直播间
+            'into_line_err_exit': False,  # 自动进入直播间失败退出
             'is_into_wait': True,  # 批量进入直播间是否随机间隔时长（防风控）
             'into_line_wait_min': 0.5,  # 批量进入直播间间隔最小时长
             'into_line_wait_max': 2.0,  # 批量进入直播间间隔最大时长
             # Appium设置
             'appium_server': 'http://localhost:4723/wd/hub',
-            'implicitly_wait': 20.0,  # 查找元素最长等待时间
-            'android_restore_ime': 'com.microvirt.memuime/.MemuIME',  # 多控统一恢复输入法
+            'implicitly_wait': 5.0,  # 查找元素最长等待时间
+            'android_restore_ime': 'bufan.bfime/.xIME',  # 多控统一恢复输入法
             # 安卓控制参数 - 启动
             'android_apk': 'ADBKeyboard.apk',  # 安装apk，放在 config 目录中
             'android_appPackage': 'com.ss.android.ugc.aweme',  # 抖音应用
@@ -2215,12 +2217,15 @@ class DyControlApi(object):
         })
 
         _app = AndroidDevice(
-            appium_server=self.para['appium_server'],
+            # appium_server=self.para['appium_server'],
             desired_caps=_desired_caps
         )
 
+        # 初始化设备
+        _app.init_device()
+
         # 设置元素查找等待时长
-        _app.implicitly_wait(self.para['implicitly_wait'])
+        # _app.implicitly_wait(self.para['implicitly_wait'])
 
         # 启动通过，加入字典
         self.apps[device_name] = {
@@ -2269,10 +2274,10 @@ class DyControlApi(object):
         self._start_app(device_name, 'line')
 
         # 保存默认输入法
-        self.apps[device_name]['default_ime'] = self.apps[device_name]['app'].adb_get_default_ime()
+        self.apps[device_name]['default_ime'] = self.apps[device_name]['app'].get_default_ime()
 
         # 设置输入法为 AdbKeyboard
-        self.apps[device_name]['app'].adb_set_adbime()
+        self.apps[device_name]['app'].set_adbime()
 
         # 尝试自动进入直播间
         if self.para['auto_into_line']:
@@ -2302,7 +2307,7 @@ class DyControlApi(object):
         """
         _app_info = self.apps[device_name]
         _app: AndroidDevice = _app_info['app']
-        _current_activity = _app.current_activity_adb
+        _current_activity = _app.current_activity
         if _current_activity not in self.para['android_line_appActivity'].split('|'):
             raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
 
@@ -2316,24 +2321,38 @@ class DyControlApi(object):
             ]
 
         # 执行点击动作
-        _app.tap_adb(x=_app_info['chat_obj_pos'][0], y=_app_info['chat_obj_pos'][1], count=1)
+        _app.tap(x=_app_info['chat_obj_pos'][0], y=_app_info['chat_obj_pos'][1], count=1)
 
         # 等待1秒，让输入框跳出来
         time.sleep(self.para['android_chat_wait_input'])
 
         # 发送内容
+        _app.adb_keyboard_clear()  # 先清除内容
         _app.adb_keyboard_text(para)
 
+        # 获取发送按钮位置
         if 'chat_send_pos' not in _app_info.keys():
-            _chat_send_steps = _app_info['script']['android_chat_send_script']
-            _chat_send = self._exec_appium_steps(device_name, _chat_send_steps)
-            _rect = _chat_send.rect
-            _app_info['chat_send_pos'] = [
-                _rect[0] + 10, _rect[1] + math.ceil(_rect[3] / 2.0)  # 靠左边点击
-            ]
+            try:
+                _chat_send_steps = _app_info['script']['android_chat_send_script']
+                _chat_send = self._exec_appium_steps(device_name, _chat_send_steps)
+                _rect = _chat_send.rect
+                _app_info['chat_send_pos'] = [
+                    _rect[0] + 10, _rect[1] + math.ceil(_rect[3] / 2.0)  # 靠左边点击
+                ]
+            except:
+                # 获取不到，尝试通过图片匹配
+                _chat_send_match = _app_info['script']['android_chat_send_match']
+                _rect = _app.locate_on_screen(
+                    os.path.join(self.config_path, _chat_send_match['image']),
+                    confidence=_chat_send_match.get('confidence', 0.95)
+                )
+                _app_info['chat_send_pos'] = [
+                    _rect[0] + math.ceil(_rect[2] / 2.0),
+                    _rect[1] + math.ceil(_rect[3] / 2.0)
+                ]
 
         # 执行发送点击动作
-        _app.tap_adb(x=_app_info['chat_send_pos'][0], y=_app_info['chat_send_pos'][1], count=1)
+        _app.tap(x=_app_info['chat_send_pos'][0], y=_app_info['chat_send_pos'][1], count=1)
 
         return (True, '成功')
 
@@ -2348,7 +2367,7 @@ class DyControlApi(object):
         """
         _app_info = self.apps[device_name]
         _app: AndroidDevice = _app_info['app']
-        _current_activity = _app.current_activity_adb
+        _current_activity = _app.current_activity
         if _current_activity not in self.para['android_line_appActivity'].split('|'):
             raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
 
@@ -2356,8 +2375,8 @@ class DyControlApi(object):
         _heart_obj = _app_info.get('heart_obj', None)
         _heart_obj_steps = _app_info['script']['android_heart_script']
         try:
-            if _heart_obj is None:
-                _heart_obj = self._exec_appium_steps(device_name, _heart_obj_steps)
+            # if _heart_obj is None:
+            _heart_obj = self._exec_appium_steps(device_name, _heart_obj_steps)
             # 执行点击操作
             _heart_obj.click()
         except:
@@ -2382,26 +2401,26 @@ class DyControlApi(object):
         """
         _app_info = self.apps[device_name]
         _app: AndroidDevice = _app_info['app']
-        _current_activity = _app.current_activity_adb
+        _current_activity = _app.current_activity
         if _current_activity not in self.para['android_line_appActivity'].split('|'):
             raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
 
-        # 先尝试获取直播室的发言位置对象, 点击
-        _heart_obj = _app_info.get('car_obj', None)
-        _heart_obj_steps = _app_info['script']['android_car_script']
+        # 尝试获取对象
+        _car_obj = _app_info.get('car_obj', None)
+        _car_obj_steps = _app_info['script']['android_car_script']
         try:
-            if _heart_obj is None:
-                _heart_obj = self._exec_appium_steps(device_name, _heart_obj_steps)
+            # if _heart_obj is None:
+            _car_obj = self._exec_appium_steps(device_name, _car_obj_steps)
             # 执行点击操作
-            _heart_obj.click()
+            _car_obj.click()
         except:
             # 出现异常做多一次, 先点击一下屏幕中间，尝试恢复正常界面
             print('get car_obj exception: %s' % traceback.format_exc())
-            _heart_obj = self._exec_appium_steps(device_name, _heart_obj_steps)
-            _heart_obj.click()
+            _car_obj = self._exec_appium_steps(device_name, _car_obj_steps)
+            _car_obj.click()
 
         # 成功执行，保留对象提升速度
-        _app_info['car_obj'] = _heart_obj
+        _app_info['car_obj'] = _car_obj
 
         return (True, '成功')
 
@@ -2417,12 +2436,12 @@ class DyControlApi(object):
         # 计算中心点，减少每次点击的计算量
         _app_info = self.apps[device_name]
         _app: AndroidDevice = _app_info['app']
-        _current_activity = _app.current_activity_adb
+        _current_activity = _app.current_activity
         if _current_activity not in self.para['android_line_appActivity'].split('|'):
             raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
 
         if _app_info.get('size', None) is None:
-            _app_info['size'] = _app.size_adb
+            _app_info['size'] = _app.size
 
         # 计算点击位置
         _x = math.ceil(_app_info['size'][0] / 2.0)
@@ -2446,7 +2465,7 @@ class DyControlApi(object):
             ))
 
         # 执行点击操作
-        _app.tap_adb_continuity(_pos_seed, para, thread_count=self.para['give_thumbs_up_tap_max'])
+        _app.tap_continuity(_pos_seed, para, thread_count=self.para['give_thumbs_up_tap_max'])
 
         return (True, '成功')
 
@@ -2462,19 +2481,19 @@ class DyControlApi(object):
         # 计算位置
         _app_info = self.apps[device_name]
         _app: AndroidDevice = _app_info['app']
-        _current_activity = _app.current_activity_adb
+        _current_activity = _app.current_activity
         if _current_activity not in self.para['android_line_appActivity'].split('|'):
             raise RuntimeError('当前[%s]不在直播间，请先手工进入直播间！' % _current_activity)
 
         if _app_info.get('size', None) is None:
-            _app_info['size'] = _app.size_adb
+            _app_info['size'] = _app.size
 
         _pos = self.bg_para['tap_to_main'].split(',')
         _x = math.ceil(_app_info['size'][0] * float(_pos[0]))
         _y = math.ceil(_app_info['size'][1] * float(_pos[1]))
 
         # 点击处理
-        _app.tap_adb(x=_x, y=_y)
+        _app.tap(x=_x, y=_y)
 
         return (True, '成功')
 
@@ -2665,27 +2684,28 @@ class DyControlApi(object):
 
         # 循环等待执行完成
         _exit_code = None
-        _info = list()  # 数据出信息的行数组
+        _info_str = ''
         while True:
-            # 获取输出信息
-            _info.append(_sp.stdout.readline().decode(
-                _shell_encoding).replace('\r', '').replace('\n', ''))
+            # 获取输出信息 .replace('\r', '').replace('\n', '')
+            _info_str += _sp.stdout.readline().decode(
+                _shell_encoding
+            ).replace('\r', '\n').replace('\n\n', '\n')
 
             _exit_code = _sp.poll()
             if _exit_code is not None:
                 # 结束，打印异常日志
-                _info.append(_sp.stdout.read().decode(
-                    _shell_encoding).replace('\r', '').replace('\n', ''))
+                _info_str += _sp.stdout.read().decode(
+                    _shell_encoding).replace('\r', '\n').replace('\n\n', '\n')
                 if _exit_code != 0:
-                    _info.append(_sp.stdout.read().decode(
-                        _shell_encoding).replace('\r', '').replace('\n', ''))
+                    _info_str += _sp.stdout.read().decode(
+                        _shell_encoding).replace('\r', '\n').replace('\n\n', '\n')
 
                 break
 
             # 释放一下CPU
             time.sleep(0.01)
 
-        return (_exit_code, _info)
+        return (_exit_code, _info_str.split('\n'))
 
     def _exec_appium_steps(self, device_name: str, steps: list, init_el: AndroidElement = None):
         """
@@ -2741,18 +2761,26 @@ class DyControlApi(object):
                 # 查找单一对象
                 if script['action'] == 'subfind':
                     # 子查询
-                    _end_el = init_el.find_element(by=_by, value=_value)
+                    _end_el = init_el.find_element(
+                        by=_by, value=_value, timeout=self.para['implicitly_wait']
+                    )
                 else:
                     # 当前页面查询
-                    _end_el = app.find_element(by=_by, value=_value)
+                    _end_el = app.find_element(
+                        by=_by, value=_value, timeout=self.para['implicitly_wait']
+                    )
             else:
                 # 查找多个对象
                 if script['action'] == 'subfind':
                     # 子查询
-                    _els = init_el.find_elements(by=_by, value=_value)
+                    _els = init_el.find_elements(
+                        by=_by, value=_value, timeout=self.para['implicitly_wait']
+                    )
                 else:
                     # 当前页面查询
-                    _els = app.find_elements(by=_by, value=_value)
+                    _els = app.find_elements(
+                        by=_by, value=_value, timeout=self.para['implicitly_wait']
+                    )
 
                 _pos = script.get('pos', 0)
                 _end_el = _els[_pos]
@@ -2761,7 +2789,7 @@ class DyControlApi(object):
             init_el.click()
         elif script['action'] == 'wait_activity':
             # 等待加载页面
-            app.wait_activity_adb(
+            app.wait_activity(
                 script.get('activity'), script.get('timeout'), script.get('interval', 0.1)
             )
         elif script['action'] == 'wait':
@@ -2773,15 +2801,15 @@ class DyControlApi(object):
         elif script['action'] == 'send_adb_keyboard_keycode':
             # 发送按键按键
             app.adb_keyboard_keycode(*script['keycode'])
-        elif script['action'] == 'send_adb_keycode':
+        elif script['action'] == 'press_keycode':
             # 通过adb发送按键
-            app.adb_keycode(*script['keycode'])
+            app.press_keycode(*script['keycode'])
         elif script['action'] == 'set_ime':
             # 切换输入法
-            app.adb_set_default_ime(script['ime'])
+            app.set_default_ime(script['ime'])
         elif script['action'] == 'tap':
             # 点击指定坐标
-            app.tap_adb(x=script['pos'][0], y=script['pos'][1])
+            app.tap(x=script['pos'][0], y=script['pos'][1])
 
         # 返回对象
         return _end_el
